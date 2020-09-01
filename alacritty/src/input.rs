@@ -868,6 +868,30 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
         self.ctx.window_mut().set_mouse_cursor(mouse_state.into());
     }
 
+    // Same logic to map to control characters as found in
+    // libX11's _XTranslateKeySym function.
+    fn set_control(&mut self, bytes: &mut [u8]) {
+        if bytes.len() != 1 {
+            return;
+        }
+
+        let mut c = bytes[0];
+
+        if (c >= b'@' && c < 0o177) || c == b' ' {
+            c &= 0x1F
+        } else if c == b'2' {
+            c = 0o000
+        } else if c >= b'3' && c <= b'7' {
+            c -= b'3' - 0o033
+        } else if c == b'8' {
+            c = 0o177
+        } else if c == b'/' {
+            c = b'_' & 0x1F
+        };
+
+        bytes[0] = c;
+    }
+
     /// Process a received character.
     pub fn received_char(&mut self, c: char) {
         let suppress_chars = *self.ctx.suppress_chars();
@@ -902,6 +926,12 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
             c.encode_utf8(&mut bytes[..]);
         }
 
+        if self.ctx.config().ui_config.logo_as_ctrl()
+            && self.ctx.modifiers().logo()
+            && !self.ctx.modifiers().ctrl()
+        {
+            self.set_control(bytes.as_mut_slice());
+        }
         if self.ctx.config().ui_config.alt_send_esc()
             && *self.ctx.received_count() == 0
             && self.ctx.modifiers().alt()
